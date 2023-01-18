@@ -34,7 +34,7 @@ public class StandaloneJavaShutterFitter {
 //        objectMapper.writeValue(new File("target/car.json"), md);
 
         // TODO: Replace this with code which reads from .ser file
-        URL json = StandaloneJavaShutterFitter.class.getResource("/shutterMotion_1.json");
+        URL json = StandaloneJavaShutterFitter.class.getResource("/shutterMotion.json");
         MotionDone md = readerWriter.read(json);
         System.out.println(md);
         
