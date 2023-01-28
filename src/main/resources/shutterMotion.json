@@ -1,13 +1,13 @@
 {
     "_side": "MINUSX",
     "_startTime": {
-        "utc": "2023-01-13T16:47:58.983Z"
+        "utc": "2022-07-15T00:53:34.523Z"
     },
-    "_startPosition": 0.0,
-    "_targetDuration": 0.900000000,
-    "_targetPosition": 100.0,
-    "_endPosition": 100.0,
-    "_actualDuration": 0.999000000,
+    "_startPosition": -0.04982454087312493,
+    "_targetDuration": 0.9007318540000001,
+    "_targetPosition": 750.76,
+    "_endPosition": 751.5278475276,
+    "_actualDuration": 0.901000000,
     "_encoderSamples": [
 
         {
