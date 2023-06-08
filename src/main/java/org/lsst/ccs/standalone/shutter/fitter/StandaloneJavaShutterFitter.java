@@ -46,19 +46,63 @@ public class StandaloneJavaShutterFitter {
 	}
 	System.out.println(direction);
 
-        // Lets do a simple fit to the hall sensors
-        // See: https://commons.apache.org/proper/commons-math/userguide/fitting.html
-        // See: https://commons.apache.org/proper/commons-math/javadocs/api-3.6.1/overview-summary.html
-        final WeightedObservedPoints obs = new WeightedObservedPoints();
-        for (HallTransition ht : md.hallTransitions()) {
-            obs.add(ht.getTime().getUTCInstant().toEpochMilli(), ht.getPosition());
-        }
+        // Convert times to seconds since startTime
+        double[] times_physical_hall = md.hallTransitions().stream().mapToDouble(ht -> (ht.getTime().getUTCInstant().toEpochMilli() - startTime) / 1000.0).toArray();
+	double[] times_physical_encd = md.encoderSamples().stream().mapToDouble(es -> (es.getTime().getUTCInstant().toEpochMilli() - startTime) / 1000.0).toArray();
 
-        final PolynomialCurveFitter fitter = PolynomialCurveFitter.create(3);
-        final double[] coeff = fitter.fit(obs.toList());
-        System.out.println(Arrays.toString(coeff));
+	double[] positions_physical_hall = md.hallTransitions().stream().mapToDouble(ht -> ht.getPosition()).toArray();
+	double[] positions_physical_encd = md.encoderSamples().stream().mapToDouble(es -> es.getPosition()).toArray();
 
-        // Try a better example using SimpleCurveFitter and ParametricUnivariateFunction
+
+	// append the last data point from MotionDone meta data
+	times_physical_hall = Arrays.copyOf(times_physical_hall, times_physical_hall.length+1);
+	times_physical_encd = Arrays.copyOf(times_physical_encd, times_physical_encd.length+1);
+
+	positions_physical_hall = Arrays.copyOf(positions_physical_hall, positions_physical_hall.length+1);
+	positions_physical_encd = Arrays.copyOf(positions_physical_encd, positions_physical_encd.length+1);
+
+	times_physical_hall[times_physical_hall.length-1] = actualDuration;
+	times_physical_encd[times_physical_encd.length-1] = actualDuration;
+
+	positions_physical_hall[positions_physical_hall.length-1] = endPosition;
+	positions_physical_encd[positions_physical_encd.length-1] = endPosition;
+
+	// normalize the data to [0,1]
+	int dataNumberHall = times_physical_hall.length;
+	int dataNumberEncoder = times_physical_encd.length;
+
+	double[] times_scaled_hall = new double[dataNumberHall];
+	double[] times_scaled_encd = new double[dataNumberEncoder];
+
+	double[] positions_scaled_hall = new double[dataNumberHall];
+	double[] positions_scaled_encd = new double[dataNumberEncoder];
+
+	final List<WeightedObservedPoint> points_hall = new ArrayList<>();
+	final List<WeightedObservedPoint> points_encd = new ArrayList<>();
+
+        for (int i = 0; i < dataNumberHall; i++) {
+		times_scaled_hall[i] = times_physical_hall[i] / actualDuration;
+		if (direction.equals("+")) {
+			positions_scaled_hall[i] = (positions_physical_hall[i] - startPosition) / 750;
+		} else if (direction.equals("-")) {
+			positions_scaled_hall[i] = (startPosition - positions_physical_hall[i]) / 750;
+		}
+
+		points_hall.add(new WeightedObservedPoint(1.0, times_scaled_hall[i], positions_scaled_hall[i]));
+	}
+
+        for (int i = 0; i < dataNumberEncoder; i++) {
+		times_scaled_encd[i] = times_physical_encd[i] / actualDuration;
+		if (direction.equals("+")) {
+			positions_scaled_encd[i] = (positions_physical_encd[i] - startPosition) / 750;
+		} else if (direction.equals("-")) {
+			positions_scaled_encd[i] = (startPosition - positions_physical_encd[i]) / 750;
+		}
+
+		points_encd.add(new WeightedObservedPoint(1.0, times_scaled_encd[i], positions_scaled_encd[i]));
+	}
+
+        // Use SimpleCurveFitter and ParametricUnivariateFunction to fit shutter motion
         double t0p = 0.00;
         double t1p = 0.225;
         double t2p = 0.675;
@@ -76,64 +120,48 @@ public class StandaloneJavaShutterFitter {
         double[] startPoint_scaled = {t0s, t1s, t2s, j0s, j1s, j2s};
 
         SixParameterModel model = new SixParameterModel();
-
-        // Convert times to seconds since startTime
-        double[] times_physical = md.hallTransitions().stream().mapToDouble(ht -> (ht.getTime().getUTCInstant().toEpochMilli() - startTime) / 1000.0).toArray();
-	double[] positions_physical = md.hallTransitions().stream().mapToDouble(ht -> ht.getPosition()).toArray();
-
-	// append the last data point from MotionDone meta data
-	times_physical = Arrays.copyOf(times_physical, times_physical.length+1);
-	positions_physical = Arrays.copyOf(positions_physical, positions_physical.length+1);
-
-	times_physical[times_physical.length-1] = actualDuration;
-	positions_physical[positions_physical.length-1] = endPosition;
-
-	// normalize the data to [0,1]
-	int dataNumber = times_physical.length;
-	double[] times_scaled = new double[dataNumber];
-	double[] positions_scaled = new double[dataNumber];
-
-        for (int i = 0; i < dataNumber; i++) {
-		times_scaled[i] = times_physical[i] / actualDuration;
-		if (direction.equals("+")) {
-			positions_scaled[i] = (positions_physical[i] - startPosition) / 750;
-		} else if (direction.equals("-")) {
-			positions_scaled[i] = (startPosition - positions_physical[i]) / 750;
-		}
-	}
-
-        final List<WeightedObservedPoint> points = new ArrayList<>();
-
-        System.out.println("====================================== Start point");
-        System.out.printf("HallTransition: %s %s %s %s %s %s\n", "scaled time", "positions", "model;", "physical time", "positions", "model");
-        for (int i = 0; i < dataNumber; i++) {
-            double p_scaled = model.value(times_scaled[i], t0s, t1s, t2s, j0s, j1s, j2s);
-            double p_physical = model.value(times_physical[i], t0p, t1p, t2p, j0p, j1p, j2p);
-            System.out.printf("HallTransition: %g %g %g; %g %g %g\n", times_scaled[i], positions_scaled[i], p_scaled, 
-									times_physical[i], positions_physical[i], p_physical);
-            points.add(new WeightedObservedPoint(1.0, times_scaled[i], positions_scaled[i]));
-        }
-        System.out.printf("grad: %s\n", Arrays.toString(model.gradient(0.5, startPoint_scaled)));
-
         SimpleCurveFitter curveFitter = SimpleCurveFitter.create(model, startPoint_scaled);
-        double[] fit_scaled = curveFitter.fit(points);
-	double[] fit_physical = new double[fit_scaled.length];
-	fit_physical[0] = fit_scaled[0] * actualDuration;
-	fit_physical[1] = fit_scaled[1] * actualDuration;
-	fit_physical[2] = fit_scaled[2] * actualDuration;
-	fit_physical[3] = fit_scaled[3] * 750 / Math.pow(actualDuration, 3);
-	fit_physical[4] = fit_scaled[4] * 750 / Math.pow(actualDuration, 3);
-	fit_physical[5] = fit_scaled[5] * 750 / Math.pow(actualDuration, 3);
 
-        System.out.println("Fit result: "+Arrays.toString(fit_physical));
-        System.out.println("====================================== After fit");
-        System.out.printf("HallTransition: %s %s %s %s %s %s\n", "scaled time", "positions", "model;", "physical time", "positions", "model");
-        for (int i = 0; i < times_physical.length; i++) {
-            double p_scaled = model.value(times_scaled[i], fit_scaled);
-            double p_physical = model.value(times_physical[i], fit_physical);
-            System.out.printf("HallTransition: %g %g %g; %g %g %g\n", times_scaled[i], positions_scaled[i], p_scaled, 
-									times_physical[i], positions_physical[i], p_physical);
+        double[] fit_scaled_hall = curveFitter.fit(points_hall);
+        double[] fit_scaled_encd = curveFitter.fit(points_encd);
+
+	double[] fit_physical_hall = new double[fit_scaled_hall.length];
+	double[] fit_physical_encd = new double[fit_scaled_encd.length];
+
+	fit_physical_hall[0] = fit_scaled_hall[0] * actualDuration;
+	fit_physical_hall[1] = fit_scaled_hall[1] * actualDuration;
+	fit_physical_hall[2] = fit_scaled_hall[2] * actualDuration;
+	fit_physical_hall[3] = fit_scaled_hall[3] * 750 / Math.pow(actualDuration, 3);
+	fit_physical_hall[4] = fit_scaled_hall[4] * 750 / Math.pow(actualDuration, 3);
+	fit_physical_hall[5] = fit_scaled_hall[5] * 750 / Math.pow(actualDuration, 3);
+
+	fit_physical_encd[0] = fit_scaled_encd[0] * actualDuration;
+	fit_physical_encd[1] = fit_scaled_encd[1] * actualDuration;
+	fit_physical_encd[2] = fit_scaled_encd[2] * actualDuration;
+	fit_physical_encd[3] = fit_scaled_encd[3] * 750 / Math.pow(actualDuration, 3);
+	fit_physical_encd[4] = fit_scaled_encd[4] * 750 / Math.pow(actualDuration, 3);
+	fit_physical_encd[5] = fit_scaled_encd[5] * 750 / Math.pow(actualDuration, 3);
+
+        System.out.println("Fit result Hall Sensor: "+Arrays.toString(fit_physical_hall));
+        System.out.println("Fit result Motor Encoder: "+Arrays.toString(fit_physical_encd));
+
+        System.out.println("====================================== Hall Sensor Data");
+        System.out.printf("HallTransition: %s %s %s %s %s %s\n", "[scaled] time", "positions", "model;", "[physical] time", "positions", "model");
+        for (int i = 0; i < dataNumberHall; i++) {
+            double p_scaled_hall = model.value(times_scaled_hall[i], fit_scaled_hall);
+            double p_physical_hall = model.value(times_physical_hall[i], fit_physical_hall);
+            System.out.printf("HallTransition: %g %g %g; %g %g %g\n", times_scaled_hall[i], positions_scaled_hall[i], p_scaled_hall, 
+									times_physical_hall[i], positions_physical_hall[i], p_physical_hall);
         }   
+
+        System.out.println("====================================== Motor Encoder Data");
+        System.out.printf("EncoderSample: %s %s %s %s %s %s\n", "[scaled] time", "positions", "model;", "[physical] time", "positions", "model");
+        for (int i = 0; i < dataNumberEncoder; i++) {
+            double p_scaled_encd = model.value(times_scaled_encd[i], fit_scaled_encd);
+            double p_physical_encd = model.value(times_physical_encd[i], fit_physical_encd);
+            System.out.printf("EncoderSample: %g %g %g; %g %g %g\n", times_scaled_encd[i], positions_scaled_encd[i], p_scaled_encd, 
+									times_physical_encd[i], positions_physical_encd[i], p_physical_encd);
+        } 
     }
 
     private static class SixParameterModel implements ParametricUnivariateFunction {
