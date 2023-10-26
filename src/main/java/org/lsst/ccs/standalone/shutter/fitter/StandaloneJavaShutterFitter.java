@@ -37,6 +37,7 @@ public class StandaloneJavaShutterFitter {
 
 	double startPosition = md.startPosition();
 	double endPosition = md.endPosition();
+	double midPosition = (startPosition + endPosition)/2;
 
 	String direction = "x";
 	if (startPosition < endPosition) {
@@ -125,8 +126,8 @@ public class StandaloneJavaShutterFitter {
         double[] fit_scaled_hall = curveFitter.fit(points_hall);
         double[] fit_scaled_encd = curveFitter.fit(points_encd);
 
-	double[] fit_physical_hall = new double[fit_scaled_hall.length];
-	double[] fit_physical_encd = new double[fit_scaled_encd.length];
+	double[] fit_physical_hall = new double[fit_scaled_hall.length+2];
+	double[] fit_physical_encd = new double[fit_scaled_encd.length+2];
 
 	fit_physical_hall[0] = fit_scaled_hall[0] * actualDuration;
 	fit_physical_hall[1] = fit_scaled_hall[1] * actualDuration;
@@ -135,6 +136,10 @@ public class StandaloneJavaShutterFitter {
 	fit_physical_hall[4] = fit_scaled_hall[4] * 750 / Math.pow(actualDuration, 3);
 	fit_physical_hall[5] = fit_scaled_hall[5] * 750 / Math.pow(actualDuration, 3);
 
+	double[] midPointTime = MidpointCalculator(midPosition, fit_physical_hall);
+	fit_physical_hall[6] = midPointTime[0];
+	fit_physical_hall[7] = midPointTime[1];
+
 	fit_physical_encd[0] = fit_scaled_encd[0] * actualDuration;
 	fit_physical_encd[1] = fit_scaled_encd[1] * actualDuration;
 	fit_physical_encd[2] = fit_scaled_encd[2] * actualDuration;
@@ -142,8 +147,9 @@ public class StandaloneJavaShutterFitter {
 	fit_physical_encd[4] = fit_scaled_encd[4] * 750 / Math.pow(actualDuration, 3);
 	fit_physical_encd[5] = fit_scaled_encd[5] * 750 / Math.pow(actualDuration, 3);
 
-        System.out.println("Fit result Hall Sensor: "+Arrays.toString(fit_physical_hall));
-        System.out.println("Fit result Motor Encoder: "+Arrays.toString(fit_physical_encd));
+	midPointTime = MidpointCalculator(midPosition, fit_physical_encd);
+	fit_physical_encd[6] = midPointTime[0];
+	fit_physical_encd[7] = midPointTime[1];
 
         System.out.println("====================================== Hall Sensor Data");
         System.out.printf("HallTransition: %s %s %s %s %s %s\n", "[scaled] time", "positions", "model;", "[physical] time", "positions", "model");
@@ -162,6 +168,58 @@ public class StandaloneJavaShutterFitter {
             System.out.printf("EncoderSample: %g %g %g; %g %g %g\n", times_scaled_encd[i], positions_scaled_encd[i], p_scaled_encd, 
 									times_physical_encd[i], positions_physical_encd[i], p_physical_encd);
         } 
+
+
+	System.out.println("Fitting Results:");
+	System.out.println("modelStartTime, pivotPoint1, pivotPoint1, jerk0, jerk1, jerk2, maxVelocityTime, midPositionTime");
+        System.out.println("Hall Sensor:");
+	System.out.println(Arrays.toString(fit_physical_hall));
+        System.out.println("Motor Encoder: ");
+        System.out.println(Arrays.toString(fit_physical_encd));
+    }
+
+    private static double[] MidpointCalculator(double Smid, double... parameters) {
+
+        double[] midTime = new double[2];
+
+	double t1 = parameters[1];
+	double j0 = parameters[3];
+	double j1 = parameters[4];
+
+	double A1 = (j0 - j1) * t1;
+	double V1 = (j0 - j1) * t1 * t1 / 2 - A1 * t1;
+	double S1 = (j0 - j1) * t1 * t1 * t1 / 6 - A1 * t1 * t1 / 2 - V1 * t1;
+
+	double t_max_v = -A1/j1;
+
+	// coefficients of a cubic equation: a*t^3 + b*t^2 + c*t + d = 0
+	double a = j1/6;
+	double b = A1/2;
+	double c = V1;
+	double d = S1 - Smid;
+
+	b = b/a;
+	c = c/a;
+	d = d/a;
+	a = 1;
+
+	double t_old = t_max_v;
+	double f_t = a*t_old*t_old*t_old + b*t_old*t_old + c*t_old + d;
+	double fp_t = 3*a*t_old*t_old + 2*b*t_old + c;
+	double t_new = t_old - 0.2*f_t/fp_t;
+
+	while( Math.abs(t_new - t_old)>1e-5 ){
+
+	    t_old = t_new;
+	    f_t = a*t_old*t_old*t_old + b*t_old*t_old + c*t_old + d;
+	    fp_t = 3*a*t_old*t_old + 2*b*t_old + c;
+	    t_new = t_old - 0.2*f_t/fp_t;
+	}
+
+        midTime[0] = t_max_v;
+        midTime[1] = t_new;
+
+        return midTime;
     }
 
     private static class SixParameterModel implements ParametricUnivariateFunction {
