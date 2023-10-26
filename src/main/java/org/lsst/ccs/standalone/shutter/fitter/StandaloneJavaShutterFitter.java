@@ -171,7 +171,7 @@ public class StandaloneJavaShutterFitter {
 
 
 	System.out.println("Fitting Results:");
-	System.out.println("modelStartTime, pivotPoint1, pivotPoint1, jerk0, jerk1, jerk2, maxVelocityTime, midPositionTime");
+	System.out.println("modelStartTime, pivotPoint1, pivotPoint2, jerk0, jerk1, jerk2, maxVelocityTime, midPositionTime");
         System.out.println("Hall Sensor:");
 	System.out.println(Arrays.toString(fit_physical_hall));
         System.out.println("Motor Encoder: ");
